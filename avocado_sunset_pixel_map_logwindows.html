@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Avocado–Sunset Pixel Mapper with Log</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #fafafa; margin: 20px; }
+  canvas { border: 1px solid #ccc; display: block; margin-bottom: 10px; }
+  #log, #events {
+    width: 500px; height: 150px;
+    border: 1px solid #aaa; background: #fff;
+    overflow-y: auto; font-family: monospace;
+    padding: 6px; margin-bottom: 10px;
+  }
+  #events { background: #f9f9f9; }
+  .event { margin: 2px 0; padding: 2px; border-bottom: 1px dotted #ccc; }
+  button { padding: 6px 10px; }
+</style>
+</head>
+<body>
+
+<h2>Avocado–Sunset Pixel Mapping Demo</h2>
+
+<canvas id="c"></canvas>
+<img id="source" src="avocado_sunset.png" style="display:none">
+
+<div><button id="runBtn">Run Mapping</button></div>
+
+<h3>Log Output</h3>
+<div id="log"></div>
+
+<h3>Event Timeline</h3>
+<div id="events"></div>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const img = document.getElementById("source");
+const logEl = document.getElementById("log");
+const eventsEl = document.getElementById("events");
+const runBtn = document.getElementById("runBtn");
+
+// Logging utilities
+function log(msg) {
+  const line = document.createElement("div");
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function event(msg) {
+  const line = document.createElement("div");
+  line.className = "event";
+  line.textContent = msg;
+  eventsEl.appendChild(line);
+  eventsEl.scrollTop = eventsEl.scrollHeight;
+}
+
+function isAvocadoGreen(r, g, b) {
+  return (g > 70 && g > r + 10 && g > b + 10 && r < 120 && b < 120);
+}
+
+function mapPixels() {
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const totalPixels = w * h;
+  let mapped = 0;
+
+  log("Starting pixel mapping...");
+  event("Mapping process initiated");
+
+  const start = performance.now();
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      let r = data[idx];
+      let g = data[idx + 1];
+      let b = data[idx + 2];
+      let a = data[idx + 3];
+
+      if (isAvocadoGreen(r, g, b)) {
+        data[idx]     = 60;
+        data[idx + 1] = 70;
+        data[idx + 2] = 20;
+        data[idx + 3] = a;
+      }
+
+      mapped++;
+      if (mapped % 20000 === 0) {
+        event(`Processed ${Math.floor(mapped / totalPixels * 100)}%`);
+      }
+    }
+  }
+
+  const end = performance.now();
+  ctx.putImageData(imageData, 0, 0);
+  log(`Mapping complete (${(end - start).toFixed(2)} ms).`);
+  event("Mapping finished successfully.");
+}
+
+img.onload = () => {
+  canvas.width = img.width;
+  canvas.height = img.height;
+  ctx.drawImage(img, 0, 0);
+  log("Image loaded successfully.");
+  event("Image ready for mapping.");
+};
+
+runBtn.onclick = () => {
+  eventsEl.innerHTML = "";
+  logEl.innerHTML = "";
+  log("Restarting...");
+  ctx.drawImage(img, 0, 0);
+  mapPixels();
+};
+</script>
+</body>
+</html>

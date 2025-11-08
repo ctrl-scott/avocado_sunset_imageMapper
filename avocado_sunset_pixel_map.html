@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Avocado Sunset Pixel Mapper</title>
+<style>
+  body { font-family: system-ui, sans-serif; }
+  canvas { border: 1px solid #ccc; display: block; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Avocado–Sunset Pixel Mapping</h1>
+<p>This demo loads the avocado–sunset image and remaps green avocado pixels.</p>
+
+<canvas id="c"></canvas>
+<img id="source" src="avocado_sunset.png" style="display:none">
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const img = document.getElementById("source");
+
+function isAvocadoGreen(r, g, b) {
+  return (g > 70 &&
+          g > r + 10 &&
+          g > b + 10 &&
+          r < 120 &&
+          b < 120);
+}
+
+img.onload = () => {
+  // 1. Draw image to canvas
+  canvas.width = img.width;
+  canvas.height = img.height;
+  ctx.drawImage(img, 0, 0);
+
+  // 2. Get pixel buffer
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // 3. Loop pixels and map them
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      let r = data[idx];
+      let g = data[idx + 1];
+      let b = data[idx + 2];
+      let a = data[idx + 3];
+
+      if (isAvocadoGreen(r, g, b)) {
+        // Replace avocado region with a darker, flatter green
+        data[idx]     = 60;  // R
+        data[idx + 1] = 70;  // G
+        data[idx + 2] = 20;  // B
+        data[idx + 3] = a;   // alpha unchanged
+      } else {
+        // Sunset / background: leave as is (or tweak here if you like)
+      }
+    }
+  }
+
+  // 4. Put modified pixels back
+  ctx.putImageData(imageData, 0, 0);
+};
+</script>
+</body>
+</html>

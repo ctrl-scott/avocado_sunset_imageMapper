@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Avocado–Sunset Pixel Mapper with Grid, Progress, Histogram</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    background: #fafafa;
+    margin: 20px;
+  }
+
+  .canvas-wrapper {
+    position: relative;
+    display: inline-block;
+  }
+
+  #baseCanvas, #overlayCanvas {
+    border: 1px solid #ccc;
+    display: block;
+  }
+
+  #overlayCanvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none; /* clicks pass through */
+  }
+
+  #log, #events {
+    width: 650px;
+    height: 180px;
+    border: 1px solid #aaa;
+    background: #fff;
+    overflow-y: auto;
+    font-family: monospace;
+    padding: 6px;
+    margin-bottom: 12px;
+  }
+
+  #events {
+    background: #f9f9f9;
+  }
+
+  .event {
+    margin: 2px 0;
+    padding: 2px;
+    border-bottom: 1px dotted #ccc;
+  }
+
+  .info { color: #004a8f; }
+  .ok   { color: #0a6b0a; }
+
+  button { padding: 6px 10px; margin-bottom: 10px; }
+
+  /* Progress bar */
+  #progressContainer {
+    width: 650px;
+    border: 1px solid #aaa;
+    background: #eee;
+    height: 18px;
+    margin: 8px 0;
+    position: relative;
+  }
+  #progressBar {
+    height: 100%;
+    width: 0%;
+    background: #4a90e2;
+    transition: width 0.1s linear;
+  }
+  #progressText {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 11px;
+    line-height: 18px;
+  }
+
+  /* Histogram */
+  #histogram {
+    width: 650px;
+    border: 1px solid #aaa;
+    background: #fff;
+    padding: 6px;
+    margin-bottom: 12px;
+    font-family: monospace;
+  }
+  .hist-row {
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+  }
+  .hist-label {
+    width: 30px;
+  }
+  .hist-bar-container {
+    flex: 1;
+    border: 1px solid #ccc;
+    height: 14px;
+    position: relative;
+    background: #f5f5f5;
+  }
+  .hist-bar {
+    height: 100%;
+    width: 0%;
+  }
+  .hist-R { background: rgba(255,0,0,0.6); }
+  .hist-G { background: rgba(0,255,0,0.6); }
+  .hist-B { background: rgba(0,0,255,0.6); }
+  .hist-value {
+    width: 45px;
+    text-align: right;
+    font-size: 11px;
+    margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Avocado–Sunset Pixel Mapper</h2>
+<p>
+This tool maps avocado green pixels to a darker green while leaving the sunset
+region intact. The x,y grid is drawn on a transparent overlay canvas, so the
+image data used for mapping is not altered by the grid.
+</p>
+
+<div class="canvas-wrapper">
+  <canvas id="baseCanvas"></canvas>
+  <canvas id="overlayCanvas"></canvas>
+</div>
+<img id="source" src="avocado_sunset.png" style="display:none">
+
+<div>
+  <button id="runBtn">Run Detailed Mapping</button>
+</div>
+
+<div id="progressContainer">
+  <div id="progressBar"></div>
+  <div id="progressText">0%</div>
+</div>
+
+<div id="histogram">
+  <strong>Live RGB Averages (after mapping so far)</strong>
+  <div class="hist-row">
+    <div class="hist-label">R</div>
+    <div class="hist-bar-container">
+      <div class="hist-bar hist-R" id="histR"></div>
+    </div>
+    <div class="hist-value" id="valR">0</div>
+  </div>
+  <div class="hist-row">
+    <div class="hist-label">G</div>
+    <div class="hist-bar-container">
+      <div class="hist-bar hist-G" id="histG"></div>
+    </div>
+    <div class="hist-value" id="valG">0</div>
+  </div>
+  <div class="hist-row">
+    <div class="hist-label">B</div>
+    <div class="hist-bar-container">
+      <div class="hist-bar hist-B" id="histB"></div>
+    </div>
+    <div class="hist-value" id="valB">0</div>
+  </div>
+</div>
+
+<h3>Log Output (Function and Loop Details)</h3>
+<div id="log"></div>
+
+<h3>Event Timeline</h3>
+<div id="events"></div>
+
+<script>
+const baseCanvas   = document.getElementById("baseCanvas");
+const overlayCanvas = document.getElementById("overlayCanvas");
+const baseCtx      = baseCanvas.getContext("2d");
+const overlayCtx   = overlayCanvas.getContext("2d");
+const img          = document.getElementById("source");
+const logEl        = document.getElementById("log");
+const eventsEl     = document.getElementById("events");
+const runBtn       = document.getElementById("runBtn");
+
+const progressBar  = document.getElementById("progressBar");
+const progressText = document.getElementById("progressText");
+
+const histRBar = document.getElementById("histR");
+const histGBar = document.getElementById("histG");
+const histBBar = document.getElementById("histB");
+const valR     = document.getElementById("valR");
+const valG     = document.getElementById("valG");
+const valB     = document.getElementById("valB");
+
+// Logging helpers
+function log(msg, cls) {
+  const line = document.createElement("div");
+  if (cls) line.classList.add(cls);
+  line.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function event(msg, cls) {
+  const line = document.createElement("div");
+  line.className = cls || "event";
+  line.textContent = msg;
+  eventsEl.appendChild(line);
+  eventsEl.scrollTop = eventsEl.scrollHeight;
+}
+
+// Progress and histogram helpers
+function updateProgress(fraction) {
+  const pct = Math.max(0, Math.min(1, fraction)) * 100;
+  progressBar.style.width = pct.toFixed(1) + "%";
+  progressText.textContent = pct.toFixed(1) + "%";
+}
+
+function updateHistogram(avgR, avgG, avgB) {
+  const toPct = v => Math.max(0, Math.min(255, v)) / 255 * 100;
+  histRBar.style.width = toPct(avgR).toFixed(1) + "%";
+  histGBar.style.width = toPct(avgG).toFixed(1) + "%";
+  histBBar.style.width = toPct(avgB).toFixed(1) + "%";
+  valR.textContent = avgR.toFixed(1);
+  valG.textContent = avgG.toFixed(1);
+  valB.textContent = avgB.toFixed(1);
+}
+
+// Grid overlay that does not modify the base image pixels
+function drawGrid(step) {
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  overlayCtx.save();
+  overlayCtx.strokeStyle = "rgba(0,0,0,0.15)";
+  overlayCtx.lineWidth = 1;
+  overlayCtx.font = "10px monospace";
+  overlayCtx.fillStyle = "rgba(0,0,0,0.5)";
+
+  // Vertical lines
+  for (let x = 0; x <= overlayCanvas.width; x += step) {
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(x + 0.5, 0);
+    overlayCtx.lineTo(x + 0.5, overlayCanvas.height);
+    overlayCtx.stroke();
+    overlayCtx.fillText(x, x + 2, 10);
+  }
+  // Horizontal lines
+  for (let y = 0; y <= overlayCanvas.height; y += step) {
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(0, y + 0.5);
+    overlayCtx.lineTo(overlayCanvas.width, y + 0.5);
+    overlayCtx.stroke();
+    overlayCtx.fillText(y, 2, y + 10);
+  }
+
+  overlayCtx.restore();
+}
+
+function isAvocadoGreen(r, g, b) {
+  return (g > 70 && g > r + 10 && g > b + 10 && r < 120 && b < 120);
+}
+
+function mapPixelsDetailed() {
+  const imageData = baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height);
+  const data = imageData.data;
+  const w = baseCanvas.width;
+  const h = baseCanvas.height;
+  const totalPixels = w * h;
+
+  let mapped = 0, greenCount = 0, otherCount = 0;
+  let sumR = 0, sumG = 0, sumB = 0;
+  const start = performance.now();
+
+  log("Beginning pixel mapping at " + start.toFixed(2) + " ms.", "info");
+  event("Process started.", "event");
+
+  // Outer Y loop
+  for (let y = 0; y < h; y++) {
+    if (y % 20 === 0) {
+      log("Row y=" + y + " start", "info");
+    }
+
+    // Inner X loop
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      let r = data[idx];
+      let g = data[idx + 1];
+      let b = data[idx + 2];
+      let a = data[idx + 3];
+
+      const avocado = isAvocadoGreen(r, g, b);
+      if (avocado) {
+        data[idx]     = 60;
+        data[idx + 1] = 70;
+        data[idx + 2] = 20;
+        data[idx + 3] = a;
+        greenCount++;
+      } else {
+        otherCount++;
+      }
+
+      // Accumulate histogram from the current (possibly modified) pixel
+      sumR += data[idx];
+      sumG += data[idx + 1];
+      sumB += data[idx + 2];
+
+      mapped++;
+
+      // Log a few representative pixels from the top left
+      if (y < 3 && x < 5) {
+        log(
+          "(x=" + x + ",y=" + y + ") RGBA=(" +
+          r + "," + g + "," + b + "," + a + ") → (" +
+          data[idx] + "," + data[idx+1] + "," +
+          data[idx+2] + "," + data[idx+3] + ") " +
+          (avocado ? "[green→darkened]" : "[unchanged]")
+        );
+      }
+
+      // Periodic updates
+      if (mapped % 20000 === 0 || mapped === totalPixels) {
+        const fraction = mapped / totalPixels;
+        updateProgress(fraction);
+
+        const avgR = sumR / mapped;
+        const avgG = sumG / mapped;
+        const avgB = sumB / mapped;
+        updateHistogram(avgR, avgG, avgB);
+
+        const pct = (fraction * 100).toFixed(1);
+        event("Checkpoint: " + mapped + "/" + totalPixels + " pixels (" + pct + "%)");
+      }
+    }
+
+    if (y % 20 === 0) {
+      log("Row y=" + y + " complete (so far " + mapped + " pixels)");
+    }
+  }
+
+  const end = performance.now();
+  baseCtx.putImageData(imageData, 0, 0);
+  const duration = (end - start).toFixed(2);
+
+  log("Mapping complete in " + duration + " ms.", "ok");
+  event("Mapping finished successfully.", "event");
+  event("Pixels processed: " + mapped, "event");
+  event("Avocado green pixels: " + greenCount, "event");
+  event("Other pixels: " + otherCount, "event");
+}
+
+img.onload = () => {
+  baseCanvas.width  = img.width;
+  baseCanvas.height = img.height;
+  overlayCanvas.width  = img.width;
+  overlayCanvas.height = img.height;
+
+  baseCtx.drawImage(img, 0, 0);
+  drawGrid(40); // grid step in pixels
+
+  log("Image loaded successfully.");
+  event("Image ready for mapping.", "event");
+  updateProgress(0);
+  updateHistogram(0, 0, 0);
+};
+
+runBtn.onclick = () => {
+  logEl.innerHTML = "";
+  eventsEl.innerHTML = "";
+  log("Resetting canvas and logs...");
+  baseCtx.drawImage(img, 0, 0);  // restore original image pixels
+  drawGrid(40);                  // redraw grid overlay
+  updateProgress(0);
+  updateHistogram(0, 0, 0);
+  mapPixelsDetailed();
+};
+</script>
+</body>
+</html>
